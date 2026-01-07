@@ -3,12 +3,12 @@ set -euo pipefail
 
 # Usage:
 #   ./security/zap-baseline.sh
-#   ./security/zap-baseline.sh https://localhost:8443/swagger
-#   ./security/zap-baseline.sh https://host.docker.internal:8443
+#   ./security/zap-baseline.sh http://localhost:8080/swagger
+#   ./security/zap-baseline.sh http://host.docker.internal:8080
 #
 # Objectif: lancer un ZAP baseline scan via Docker et générer un rapport HTML + JSON dans ./security
 
-BASE_URL="${1:-https://localhost:8443}"
+BASE_URL="${1:-http://localhost:8080}"
 
 # Convertit localhost -> host.docker.internal pour que Docker puisse accéder au Mac
 TARGET_DOCKER="$(printf '%s' "$BASE_URL" | sed 's#://localhost#://host.docker.internal#g')"
@@ -26,7 +26,7 @@ command -v docker >/dev/null 2>&1 || { echo "❌ Docker n'est pas installé."; e
 docker info >/dev/null 2>&1 || { echo "❌ Docker n'est pas démarré."; exit 1; }
 
 echo "==> Test accès cible depuis ta machine: $BASE_URL"
-HTTP_CODE="$(curl -k -s -o /dev/null -w "%{http_code}" --max-time 8 "$BASE_URL" || true)"
+HTTP_CODE="$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 "$BASE_URL" || true)"
 if [[ -z "$HTTP_CODE" || "$HTTP_CODE" == "000" ]]; then
   echo "❌ Impossible d'accéder à $BASE_URL (ton app n'est pas joignable)"
   exit 1

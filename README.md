@@ -1,58 +1,302 @@
-# SecureDesk – microservices React/Node app hardened for security
+# DM Conteneurisation — SecureDesk (Docker Compose)
 
-Application de tickets sécurisée avec architecture microservices : passerelle HTTPS, services d'authentification et métier séparés, front React (Vite) et PostgreSQL. Livré avec protections OWASP, JWT + rotation de refresh tokens, RBAC, audit log et outillage (SonarQube, OWASP ZAP, npm audit).
 
-## Démarrage rapide
-1. Générer des certificats locaux dans `certs/` (mkcert recommandé, cf. `certs/README.md`).
-2. Copier `.env.example` en `.env` et ajuster secrets (JWT, domaine cookie, origin du front).
-3. Lancer :
-   ```bash
-   docker-compose up --build
-   ```
-   Front : https://localhost:4173 · Gateway : https://localhost:8443
 
-> Premier admin : créer un compte via /register puis promouvoir depuis le SGBD :
-> `docker exec -it projetfinal-db-1 psql -U securedesk -d securedesk -c "UPDATE users SET role='ADMIN' WHERE email='vous@example.com';"`
+## Prérequis
+- Docker Engine (récent)
+- Docker Compose v2 (`docker compose ...`)
+- OS : Windows / macOS / Linux
 
-## Services
-- **gateway (Node/Express)** : TLS, redirection HTTP→HTTPS, CORS strict, helmet/CSP, rate-limit, promotion du cookie d'accès HttpOnly en header `Authorization`, reverse proxy vers services internes.
-- **auth-service** : inscription/connexion, Argon2, JWT access (15m) + refresh (7j) en cookies HttpOnly Secure SameSite=Strict, rotation et révocation des refresh tokens stockés hashés, verrouillage après N échecs, endpoints admin (`/users`).
-- **api-service** : CRUD tickets avec contrôle d'ownership, RBAC admin (lecture globale + audit), vérification d'utilisateur actif, audit log.
-- **front (Vite/React)** : pages login/register, dashboard tickets, admin utilisateurs & journal. Axios avec `withCredentials`, refresh automatique sur 401.
-- **db (PostgreSQL)** : init SQL dans `db/init.sql` (tables users, refresh_tokens, tickets, audit_logs).
-- **security tooling** : SonarQube (profil compose `security`), script ZAP baseline, npm audit.
+### Ports utilisés (hôte)
+- **Front** : `http://localhost:4173`
+- **Gateway (entrée backend)** : `http://localhost:8080`
+- **SonarQube (optionnel)** : `http://localhost:9000` (profil `security`)
 
-## Sécurité implémentée
-- **Transport** : HTTPS sur la gateway (self-signed/mkcert), HSTS, redirection HTTP, CSP/Referrer-Policy/Permissions-Policy via helmet, headers CORS strict (origine unique, headers/méthodes limités, credentials true), Nginx non requis.
-- **Authentification** : Argon2 pour mots de passe, JWT access court + refresh long en cookies HttpOnly Secure SameSite=Strict, rotation + révocation stockage hashé, verrouillage temporaire après `ACCOUNT_LOCK_THRESHOLD` échecs, rate-limit `/login`.
-- **Contrôles d'accès** : RBAC (USER, ADMIN), vérification ownership tickets côté serveur, blocage des comptes désactivés, admin peut désactiver des comptes.
-- **OWASP** :
-  - Injection : requêtes préparées `pg`, validation zod.
-  - XSS : React par défaut, CSP restrictive, aucune insertion HTML non maîtrisée.
-  - Broken Access Control : middleware auth systématique, checks de rôle/ownership, vérif compte actif.
-  - Security Misconfig : secrets via env, headers sécurisés, CORS strict, pas de stack traces retournées.
-  - Cryptographic Failures : TLS, Argon2, refresh tokens hashés.
-  - V&O Components : dépendances récentes + `npm audit` (cf. sécurité).
-- **Journalisation** : table `audit_logs` (logins, créations/suppressions tickets, changements admin, refresh rotation).
+> La base PostgreSQL n’est **pas exposée** à l’hôte : elle est accessible uniquement en interne via le réseau Docker.
 
-## Commandes utiles
-- Lancer seulement l'appli : `docker-compose up gateway auth-service api-service front db`
-- Outillage SonarQube : `docker-compose --profile security up sonarqube`
-- ZAP baseline (après `docker-compose up`) : `./security/zap-baseline.sh https://localhost:8443`
-- Audit dépendances : `npm audit --production --registry=https://registry.npmjs.org` dans chaque dossier service/front.
+---
 
-## Tests manuels essentiels
-- Inscription puis login (vérifier cookies HttpOnly dans l'onglet Storage).
-- Accès `/api/tickets` sans token → 401.
-- USER voit uniquement ses tickets ; ADMIN voit tout et peut désactiver un compte (compte désactivé bloque login et accès API existant).
-- Refresh token : appeler `/auth/refresh` après expiration (forcer en modifiant ACCESS_TOKEN_EXPIRES) → nouvelle rotation et ancienne entrée `refresh_tokens` marquée `revoked=true`.
+## Etapes completes pour lancer le projet
+1) Recuperer le projet :
+```bash
+git clone <url-du-repo>
+cd <dossier-du-repo>
+```
 
-## Documentation sécurité
-Détails supplémentaires, procédures et exports ZAP/Sonar dans `security/` :
-- `security/REPORT.md` : mesures de sécurité et justification.
-- `security/procedures.md` : pas-à-pas TLS, démarrage, SonarQube, ZAP, npm audit.
-- `security/zap-baseline.sh` : scan automatisé OWASP ZAP baseline.
+2) Creer le fichier d'environnement :
+```bash
+cp .env.example .env
+```
+Puis modifier `.env` et definir au minimum :
+- `POSTGRES_PASSWORD`
+- `JWT_ACCESS_SECRET`
+- `JWT_REFRESH_SECRET`
 
-## Notes
-- Pas de secrets côté front. Ajuster `FRONTEND_ORIGIN`/`COOKIE_DOMAIN` dans `.env` si l'hôte change.
-- Si vous n'avez pas les certifs TLS, Vite et la gateway peuvent démarrer sans HTTPS (avertissement) mais restez en HTTPS pour les tests sécurité.
+3) Lancer la stack :
+```bash
+docker compose up --build
+```
+
+4) Acceder a l'application :
+- Front : http://localhost:4173
+- Gateway : http://localhost:8080
+
+5) Creer un compte utilisateur :
+- Aller sur http://localhost:4173/register
+- S'inscrire avec un email et un mot de passe
+
+6) Promouvoir un compte en ADMIN (optionnel) :
+```bash
+docker compose exec db psql -U securedesk -d securedesk -c "UPDATE users SET role='ADMIN' WHERE email='vous@example.com';"
+```
+
+7) Verifier que tout fonctionne :
+```bash
+curl http://localhost:8080/health
+```
+
+---
+
+## Procédure de build et lancement
+
+### Lancement normal (stack principal)
+```bash
+docker compose up --build
+```
+
+Accès :
+- Front : http://localhost:4173
+- Gateway : http://localhost:8080
+
+Arrêt :
+```bash
+docker compose down
+```
+
+Logs :
+```bash
+docker compose logs -f
+```
+
+Reset complet (supprime les données persistées) :
+```bash
+docker compose down -v
+```
+
+### Lancement optionnel : SonarQube (profil security)
+Le service SonarQube est derrière un profil Compose, donc il n’est pas lancé par défaut.
+
+```bash
+docker compose --profile security up --build
+```
+
+Accès SonarQube :
+- http://localhost:9000
+
+---
+
+## Variables d’environnement (.env)
+Le `docker-compose.yml` attend des variables d’environnement (via `.env`).
+
+### 1) Créer votre `.env`
+À la racine du dépôt :
+```bash
+cp .env.example .env
+```
+
+### 2) Variables importantes
+Obligatoires / très recommandées :
+
+- `POSTGRES_PASSWORD`
+- `JWT_ACCESS_SECRET`
+- `JWT_REFRESH_SECRET`
+
+Exemple minimal (à adapter) :
+```env
+POSTGRES_USER=securedesk
+POSTGRES_PASSWORD=change_me
+POSTGRES_DB=securedesk
+
+AUTH_PORT=4000
+API_PORT=5000
+GATEWAY_PORT=8080
+
+JWT_ACCESS_SECRET=change_me_access
+JWT_REFRESH_SECRET=change_me_refresh
+
+FRONTEND_ORIGIN=http://localhost:4173
+VITE_API_BASE=http://localhost:8080
+
+SECURE_COOKIES=false
+COOKIE_DOMAIN=localhost
+```
+
+Bonnes pratiques : `.env` ne doit pas être commit. Fournir `.env.example` sans secrets.
+
+---
+
+## Schema Architecture 
+
+![Schéma d'architecture Docker](architecture_docker.png)
+
+---
+
+## Architecture Docker Compose (services)
+Services définis dans `docker-compose.yml` :
+
+- `db` : PostgreSQL 15 (persistance `db-data` + init SQL)
+- `auth-service` : microservice d’authentification (Node) — interne
+- `api-service` : microservice API métier (Node) — interne
+- `gateway` : point d’entrée HTTP backend (Node) — **exposé sur 8080**
+- `front` : front Vite — **exposé sur 4173**
+- `sonarqube` : optionnel, profil `security` — **exposé sur 9000**
+
+Réseau :
+- `app-net` (bridge) : réseau commun à tous les services
+
+Volumes :
+- `db-data` : données PostgreSQL (persistance)
+- `sonar-data`, `sonar-extensions` : données/extensions SonarQube (optionnel)
+
+---
+
+## Détails par service (ports, env, volumes, dépendances)
+
+### db (PostgreSQL 15)
+- Image : `postgres:15`
+- Environnement :
+  - `POSTGRES_USER` (défaut : securedesk)
+  - `POSTGRES_PASSWORD` (obligatoire)
+  - `POSTGRES_DB` (défaut : securedesk)
+- Volumes :
+  - `db-data:/var/lib/postgresql/data` (persistance)
+  - `./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro` (initialisation)
+- Healthcheck :
+  - `pg_isready -U <user>`
+- Réseau :
+  - `app-net`
+
+### auth-service
+- Build : `./auth-service`
+- Dépend de `db` (attend `service_healthy`)
+- Environnement :
+  - `DATABASE_URL=postgres://...@db:5432/...`
+  - `AUTH_PORT` (défaut : 4000)
+  - `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`
+  - paramètres (cookies, lock, CORS) : `FRONTEND_ORIGIN`, `COOKIE_DOMAIN`, `SECURE_COOKIES`, etc.
+- Healthcheck :
+  - `GET http://localhost:<AUTH_PORT>/health` (dans le conteneur)
+- Réseau :
+  - `app-net`
+- Exposition hôte :
+  - aucune (service interne)
+
+### api-service
+- Build : `./api-service`
+- Dépend de `db` (attend `service_healthy`)
+- Environnement :
+  - `DATABASE_URL=postgres://...@db:5432/...`
+  - `API_PORT` (défaut : 5000)
+  - `JWT_ACCESS_SECRET`
+  - `FRONTEND_ORIGIN` (CORS)
+- Healthcheck :
+  - `GET http://localhost:<API_PORT>/health` (dans le conteneur)
+- Réseau :
+  - `app-net`
+- Exposition hôte :
+  - aucune (service interne)
+
+### gateway
+- Build : `./gateway`
+- Dépend de `auth-service` et `api-service` (attend `service_healthy`)
+- Exposé sur l’hôte :
+  - `${GATEWAY_PORT:-8080}:${GATEWAY_PORT:-8080}`
+- Environnement :
+  - `GATEWAY_PORT` (défaut : 8080)
+  - `AUTH_SERVICE_URL` (défaut : http://auth-service:4000)
+  - `API_SERVICE_URL` (défaut : http://api-service:5000)
+  - CORS : `FRONTEND_ORIGIN`
+  - rate limiting : `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`, `DISABLE_RATE_LIMIT`
+- Healthcheck :
+  - `GET http://localhost:<GATEWAY_PORT>/health` (dans le conteneur)
+- Réseau :
+  - `app-net`
+
+### front
+- Build : `./front`
+- Dépend de `gateway` (attend `service_healthy`)
+- Exposé sur l’hôte :
+  - `4173:4173`
+- Environnement :
+  - `VITE_API_BASE` (défaut : http://localhost:8080)
+- Réseau :
+  - `app-net`
+
+### sonarqube (optionnel)
+- Image : `sonarqube:lts-community`
+- Profil : `security`
+- Exposé sur l’hôte :
+  - `9000:9000`
+- Dépend de `db` (attend `service_healthy`)
+- Environnement (connexion DB) :
+  - `SONAR_JDBC_URL=jdbc:postgresql://db:5432/<db>`
+  - `SONAR_JDBC_USERNAME=<user>`
+  - `SONAR_JDBC_PASSWORD=<password>`
+- Volumes :
+  - `sonar-data:/opt/sonarqube/data`
+  - `sonar-extensions:/opt/sonarqube/extensions`
+- Réseau :
+  - `app-net`
+
+---
+
+## Persistance des données
+PostgreSQL persiste via le volume `db-data`.
+
+SonarQube (optionnel) persiste via `sonar-data` et `sonar-extensions`.
+
+Test simple :
+1. `docker compose up`
+2. Ajouter des données via l’app
+3. `docker compose down`
+4. `docker compose up`
+
+Les donnees restent (`docker compose down -v` supprime la persistance).
+
+---
+
+## Communication inter-services (réseau + DNS Compose)
+Les services communiquent via le réseau `app-net` :
+- `auth-service` -> `db:5432`
+- `api-service` -> `db:5432`
+- `gateway` -> `http://auth-service:4000` et `http://api-service:5000`
+- `front` -> `http://localhost:8080` (gateway exposé)
+
+---
+
+## Sécurité / Bonnes pratiques (attendu DM)
+- DB non exposée à l’hôte (réduction surface d’attaque)
+- Secrets via `.env` non versionné + `.env.example`
+- Healthchecks + `depends_on: service_healthy` pour démarrage fiable
+- Services séparés (1 conteneur = 1 responsabilité)
+- SonarQube isolé derrière un profil (`--profile security`)
+
+---
+
+## Dépannage
+
+### Ports déjà utilisés
+Changer les ports dans `.env` (ex : `GATEWAY_PORT=8081`), puis :
+```bash
+docker compose up --build
+```
+
+### Vérifier l’état
+```bash
+docker compose ps
+```
+
+### Logs
+```bash
+docker compose logs -f
+```

@@ -3,7 +3,7 @@ env:
   - excludePaths: []
     name: baseline
     urls:
-    - https://host.docker.internal:8443
+    - http://host.docker.internal:8080
   parameters:
     failOnError: true
     progressToStdout: false
@@ -14,7 +14,7 @@ jobs:
   type: passiveScan-config
 - parameters:
     maxDuration: 1
-    url: https://host.docker.internal:8443
+    url: http://host.docker.internal:8080
   type: spider
 - parameters:
     maxDuration: 0
@@ -27,14 +27,14 @@ jobs:
 - parameters:
     reportDescription: ''
     reportDir: /zap/wrk/
-    reportFile: zap-baseline-20251219-112853.html
+    reportFile: zap-baseline.html
     reportTitle: ZAP Scanning Report
     template: traditional-html
   type: report
 - parameters:
     reportDescription: ''
     reportDir: /zap/wrk/
-    reportFile: zap-baseline-20251219-112853.json
+    reportFile: zap-baseline.json
     reportTitle: ZAP Scanning Report
     template: traditional-json
   type: report

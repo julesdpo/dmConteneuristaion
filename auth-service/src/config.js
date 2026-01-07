@@ -9,8 +9,8 @@ export const config = {
   accessTokenExpires: process.env.ACCESS_TOKEN_EXPIRES || '15m',
   refreshTokenExpires: process.env.REFRESH_TOKEN_EXPIRES || '7d',
   cookieDomain: process.env.COOKIE_DOMAIN || 'localhost',
-  secureCookies: String(process.env.SECURE_COOKIES || 'true') === 'true',
-  frontendOrigin: process.env.FRONTEND_ORIGIN || 'https://localhost:4173',
+  secureCookies: String(process.env.SECURE_COOKIES || 'false') === 'true',
+  frontendOrigin: process.env.FRONTEND_ORIGIN || 'http://localhost:4173',
   accountLockThreshold: parseInt(process.env.ACCOUNT_LOCK_THRESHOLD || '5', 10),
   accountLockMs: parseInt(process.env.ACCOUNT_LOCK_MS || '900000', 10)
 };

@@ -12,7 +12,7 @@ import { logAction } from './audit.js';
 const app = express();
 
 const corsOptions = {
-  origin: process.env.FRONTEND_ORIGIN || 'https://localhost:4173',
+  origin: process.env.FRONTEND_ORIGIN || 'http://localhost:4173',
   credentials: true,
   methods: ['GET', 'POST', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -26,7 +26,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       connectSrc: ["'self'", corsOptions.origin],
       imgSrc: ["'self'", 'data:'],
-      styleSrc: ["'self'", 'https:', "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
       frameAncestors: ["'none'"]
     }
   },

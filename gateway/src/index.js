@@ -4,9 +4,6 @@ import cors from 'cors';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
-import fs from 'fs';
-import https from 'https';
-import http from 'http';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { config } from './config.js';
 
@@ -28,12 +25,12 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       connectSrc: ["'self'", config.frontendOrigin],
       scriptSrc: ["'self'"],
-      styleSrc: ["'self'", 'https:', "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
       frameAncestors: ["'none'"]
     }
   },
   referrerPolicy: { policy: 'no-referrer' },
-  hsts: { maxAge: 15552000 },
+  hsts: false,
   crossOriginEmbedderPolicy: false
 }));
 app.use(cors(corsOptions));
@@ -76,7 +73,7 @@ const proxyCommon = {
   secure: false,
   onProxyReq: (proxyReq, req) => {
     proxyReq.setHeader('x-forwarded-for', req.ip);
-    proxyReq.setHeader('x-forwarded-proto', 'https');
+    proxyReq.setHeader('x-forwarded-proto', 'http');
   },
   onError: (err, req, res) => {
     console.error('Proxy error', err.message);
@@ -114,23 +111,6 @@ app.use('/api', createProxyMiddleware({
 
 app.use((req, res) => res.status(404).json({ message: 'Not found' }));
 
-const httpsOptions = fs.existsSync(config.tlsCertPath) && fs.existsSync(config.tlsKeyPath)
-  ? { cert: fs.readFileSync(config.tlsCertPath), key: fs.readFileSync(config.tlsKeyPath) }
-  : null;
-
-if (httpsOptions) {
-  https.createServer(httpsOptions, app).listen(config.port, () => {
-    console.log(`gateway listening on https:${config.port}`);
-  });
-  http.createServer((req, res) => {
-    res.writeHead(301, { Location: `${config.frontendOrigin}` });
-    res.end();
-  }).listen(config.httpPort, () => {
-    console.log(`gateway http redirect on ${config.httpPort}`);
-  });
-} else {
-  console.warn('TLS certs not found, serving plain HTTP on fallback port (dev only).');
-  http.createServer(app).listen(config.httpPort, () => {
-    console.log(`gateway http fallback on ${config.httpPort}`);
-  });
-}
+app.listen(config.port, () => {
+  console.log(`gateway listening on http:${config.port}`);
+});
